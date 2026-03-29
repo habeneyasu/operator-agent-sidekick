@@ -1,1 +1,6 @@
+# Ignore all Markdown files by default
+*.md
+!README.md
+!docs/developer.md
+
 developer.md

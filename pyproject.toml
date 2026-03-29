@@ -1,0 +1,4 @@
+[dependency-groups]
+dev = [
+    "langsmith>=0.7.22",
+]

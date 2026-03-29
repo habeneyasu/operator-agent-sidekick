@@ -119,9 +119,9 @@ def build_evaluator_request(
 
 
 def evaluator_feedback_message(feedback: str) -> dict[str, str]:
-    """Assistant-shaped message recording evaluator feedback (for chat transcript)."""
+    """System-shaped message recording evaluator feedback (hidden from typical UIs)."""
     return {
-        "role": "assistant",
+        "role": "system",
         "content": f"Evaluator Feedback on this answer: {feedback}",
     }
 
