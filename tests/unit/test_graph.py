@@ -24,6 +24,46 @@ def _echo_fixture(input: str) -> str:
     return f"tool:{input}"
 
 
+def test_graph_respects_iteration_cap():
+    """Graph should end when iteration reaches the configured max."""
+    # Worker: always produces an assistant turn (no tool calls)
+    worker = RunnableLambda(lambda msgs: AIMessage(content="attempt"))
+    # Evaluator: always asks to retry (not success, no user input)
+    evaluator = RunnableLambda(
+        lambda msgs: EvaluatorOutput(
+            feedback="try again",
+            success_criteria_met=False,
+            user_input_needed=False,
+        )
+    )
+    # Compile with explicit max_iterations=1 to force a single evaluator loop
+    graph = compile_sidekick_graph(
+        llm_worker=worker,
+        llm_evaluator_structured=evaluator,
+        sidekick_tools=[],
+        max_iterations=1,
+    )
+    out = graph.invoke(
+        {
+            "messages": [HumanMessage(content="start")],
+            "success_criteria": "finish",
+            "feedback_on_work": None,
+            "success_criteria_met": False,
+            "user_input_needed": False,
+            "iteration": 0,
+        }
+    )
+    # It should stop without success once the cap is reached
+    assert out["success_criteria_met"] is False
+    # Iteration should have been incremented exactly once by evaluator node
+    assert out["iteration"] == 1
+    # A SystemMessage with evaluator feedback should be included
+    assert any(
+        getattr(m, "type", "") == "system" and "Evaluator Feedback" in str(getattr(m, "content", ""))
+        for m in out["messages"]
+    )
+
+
 def test_route_worker_no_tool_calls_goes_evaluator():
     state: SidekickGraphState = {
         "messages": [HumanMessage(content="h"), AIMessage(content="ok")],
@@ -102,7 +142,7 @@ def test_sidekick_tool_to_langchain_roundtrip():
     st = SidekickTool(name="t1", description="d", invoke=lambda s: s.upper())
     lc = sidekick_tool_to_langchain(st)
     assert lc.name == "t1"
-    assert lc.invoke({"s": "ab"}) == "AB"
+    assert lc.invoke({"input": "ab"}) == "AB"
 
 
 def test_graph_invoke_no_tools_single_pass():
@@ -130,7 +170,10 @@ def test_graph_invoke_no_tools_single_pass():
         }
     )
     assert out["success_criteria_met"] is True
-    assert "Evaluator Feedback" in str(out["messages"][-1].content)
+    assert any(
+        getattr(m, "type", "") == "system" and "Evaluator Feedback" in str(getattr(m, "content", ""))
+        for m in out["messages"]
+    )
 
 
 def test_graph_invoke_worker_evaluator_retry_then_success():
