@@ -1,4 +1,6 @@
 [dependency-groups]
 dev = [
+    "langchain-ollama>=1.0.1",
     "langsmith>=0.7.22",
+    "plotly>=6.6.0",
 ]
