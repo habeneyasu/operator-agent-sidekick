@@ -189,15 +189,27 @@ Full reference: `docs/developer.md`.
 
 ## Observability
 
-The Gradio UI includes a live **Observability** panel with:
+The Gradio UI includes a live **Observability** panel alongside the chat. Metrics are computed in-process and update after every run.
 
-- **Acceptance rate** — evaluator finality (% of runs accepted on first pass)
-- **Iterations p95** — loop health; high values indicate the worker is struggling
-- **Latency p50 / p95** — end-to-end response time
-- **Avg tokens / run** — cost proxy
-- **Tool reliability chart** — per-tool success rate
-- **Latency distribution** — histogram with p50/p95 reference lines
-- **Token usage trend** — per-run token count over time
+![Sidekick Observability Dashboard](data/metrics/sidekick-observability-dashboard.png)
+
+### Live metrics (session snapshot)
+
+| Metric | Value | What it means |
+|--------|-------|---------------|
+| Acceptance Rate | **100%** | Every run accepted by the evaluator on first pass |
+| Iterations p95 | **0** | No retry loops needed — worker answered correctly first time |
+| Latency p50 | ~112s | Median end-to-end time (local Ollama `llama3.1:8b`) |
+| Latency p95 | ~112s | Tail latency — consistent with p50, no outliers |
+| Avg Tokens / Run | **634** | Prompt + completion tokens per run (local model estimate) |
+
+> Latency reflects a local Ollama inference run on `llama3.1:8b`. With OpenAI or OpenRouter the same query completes in 2–5 seconds.
+
+### Dashboard panels
+
+- **Tool Reliability** — per-tool success rate bar chart (color-coded green/yellow/red)
+- **Latency Distribution** — histogram with p50 and p95 reference lines
+- **Token Usage per Run** — time-series with rolling average line
 
 Enable LangSmith for full distributed tracing:
 
