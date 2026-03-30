@@ -1,38 +1,35 @@
-# Browser Sidekick Agent (Operator-Style AI)
+# Sidekick — Operator-Style AI Agent
 
 An autonomous, operator-style AI agent that plans, executes, and self-corrects multi-step tasks using LangGraph and tool-augmented LLMs.
 
-Unlike traditional chatbots, this Sidekick acts as an Operator:
-- Interacts with web apps (click, type, navigate) via tools
-- Uses search, files, Python, and optional browser automation
-- Evaluates its own work and iterates until success or a controlled stop
+Unlike traditional chatbots, Sidekick acts as an **Operator** — it performs real tasks, interacts with external systems, self-evaluates its own output, and iterates until success or a controlled stop.
 
-Status: Complete developer baseline with typed configuration, state models, worker/evaluator nodes, tools, LangGraph wiring, memory resume, OpenAI/OpenRouter builders, a minimal Gradio UI, and tests.
-
-Example:
-“Find flight tickets under $500 and summarize the best options”
-→ The agent searches, navigates websites, extracts data, and validates results automatically.
+> "Find flight tickets under $500 and summarize the best options"
+> → The agent searches, navigates websites, extracts data, and validates results automatically.
 
 ---
 
 ## Features
 
-- Self-evaluating worker/evaluator loop with iteration cap
-- Tooling: sandboxed files, search, Wikipedia, Python REPL, notifications, optional browser
-- Sessions: in-memory checkpointing with `thread_id` resume
-- Config: type-safe env settings (`src/config.py`)
-- UI: minimal Gradio chat; programmatic API
-- Tracing: LangSmith-ready (tags/metadata), plus structured logs
+- **Worker / Evaluator loop** — two-LLM architecture with iteration cap and token budget enforcement
+- **Tool ecosystem** — sandboxed file I/O, web search (Serper), Wikipedia, Python REPL, Pushover notifications, optional Playwright browser automation
+- **Multi-provider LLM support** — OpenAI, OpenRouter, and local Ollama (llama3.1:8b and compatible models)
+- **Intent detection + auto-retrieval** — automatically grounds factual and overview queries in local docs or Wikipedia before the worker runs
+- **Session memory** — in-memory checkpointing with `thread_id` resume via LangGraph
+- **Observability UI** — Gradio chat with live metrics dashboard (acceptance rate, latency p50/p95, token usage, tool reliability)
+- **LangSmith tracing** — tags/metadata on every run; structured logging throughout
+- **Type-safe config** — all settings driven by environment variables via `src/config.py`
 
 ---
 
 ## Why This Matters
 
-Most AI systems are passive—they answer questions. This project demonstrates Action-Oriented AI where agents:
-- Perform real tasks (not just respond)
-- Interact with external systems (browser, APIs)
-- Self-evaluate and improve results
-- Operate safely with human-in-the-loop controls
+Most AI systems are passive — they answer questions. Sidekick demonstrates **Action-Oriented AI** where agents:
+
+- Perform real tasks, not just respond
+- Interact with external systems (browser, APIs, files)
+- Self-evaluate and improve results through iteration
+- Operate safely with human-in-the-loop controls and hard stop conditions
 
 Directly applicable to:
 - Digital onboarding and KYC automation
@@ -42,174 +39,167 @@ Directly applicable to:
 
 ---
 
-## Repository layout
+## Architecture
 
-| Path | Purpose |
-|------|---------|
-| `src/config.py` | Typed environment settings (`Settings`, `get_settings()`). |
-| `src/state.py` | `AgentState` and `EvaluatorOutput` (Pydantic). |
-| `src/llm/` | `BaseLLMClient`, `OpenAIClient`. |
-| `src/utils/prompts.py` | Worker and evaluator prompt builders (including evaluator JSON instruction). |
-| `src/utils/parsing.py` | Parses evaluator LLM text into `EvaluatorOutput`. |
-| `src/agents/worker.py` | Worker node: normalises history, builds the LLM request, runs the model. |
-| `src/agents/evaluator.py` | Evaluator node: builds request, parses structured output, updates flags. |
-| `src/agents/graph.py` | `SidekickGraphState`, `compile_sidekick_graph`, `create_sidekick_graph_from_settings`, routers. |
-| `src/tools/` | `SidekickTool`, registry, sandbox files, search, Wikipedia, Python, Pushover, Playwright. |
-| `src/ui/` | `api.py` helpers, `gradio_app.py` chat UI. |
-| `tests/unit/` | Unit tests. |
-| `docs/developer.md` | Developer guide: ownership, config, testing, change log. |
+```mermaid
+flowchart LR
+  User[User / UI] <--> Sidekick[Sidekick / LangGraph]
+  Sidekick --> Intent[Intent Detection]
+  Intent -->|retrieval needed| Retrieve[Auto-Retrieve\nLocal Docs / Wikipedia]
+  Intent -->|direct| Worker[Worker LLM]
+  Retrieve --> Worker
+  Worker -->|tool calls| Tools[Tools]
+  Tools --> Worker
+  Worker -->|assistant reply| Eval[Evaluator / Finalize]
+  Eval -->|insufficient: feedback| Worker
+  Eval -->|success or user input needed| End[END / pause]
+```
+
+**Key details:**
+
+- `src/agents/graph.py` — full graph: intent → auto-retrieve → worker → optional tools → evaluator/finalize, with iteration cap and resume
+- `src/sidekick.py` — provider builders for OpenAI, OpenRouter, and Ollama
+- Ollama path runs without tool binding (straight-line mode) — local 8B models reliably default to tool calls over text answers when tools are bound; auto-retrieve handles grounding instead
+- Evaluator feedback is stored as a `SystemMessage`; the UI shows only the final assistant answer
 
 ---
 
-## Quick start
+## Repository Layout
+
+| Path | Purpose |
+|------|---------|
+| `src/config.py` | Typed env settings (`Settings`, `get_settings()`). |
+| `src/state.py` | `AgentState` and `EvaluatorOutput` (Pydantic). |
+| `src/llm/` | `BaseLLMClient`, `OpenAIClient`. |
+| `src/utils/prompts.py` | Worker and evaluator prompt builders. |
+| `src/utils/parsing.py` | Parses evaluator LLM text into `EvaluatorOutput`. |
+| `src/agents/worker.py` | Worker node: normalises history, builds LLM request. |
+| `src/agents/evaluator.py` | Evaluator node: builds request, parses structured output, updates flags. |
+| `src/agents/graph.py` | `SidekickGraphState`, `compile_sidekick_graph`, routers, intent detection, auto-retrieve. |
+| `src/tools/` | `SidekickTool`, registry, sandbox files, search, Wikipedia, Python REPL, Pushover, Playwright. |
+| `src/ui/` | `api.py` helpers, `gradio_app.py` chat + observability UI. |
+| `src/metrics.py` | In-process counters and histograms; `get_metrics_summary()`. |
+| `tests/unit/` | Unit tests. |
+| `docs/developer.md` | Developer guide: module ownership, config contract, testing matrix, change log. |
+
+---
+
+## Quick Start
 
 ### Prerequisites
 
-- [uv](https://github.com/astral-sh/uv) (recommended)
-- Python 3.12+
+- [uv](https://github.com/astral-sh/uv) (recommended) or Python 3.12+
 
 ### Environment
 
-Create a `.env` and add your keys:
-
 ```bash
 cat > .env <<'EOF'
-# Choose OpenAI or OpenRouter
+# --- OpenAI ---
 # OPENAI_API_KEY=sk-...
-# Models (defaults to gpt-4o-mini)
 # OPENAI_MODEL_WORKER=gpt-4o-mini
 # OPENAI_MODEL_EVALUATOR=gpt-4o-mini
 
-# Or OpenRouter (recommended when you can't use OpenAI directly)
+# --- OpenRouter (recommended if you can't use OpenAI directly) ---
 # OPENROUTER_API_KEY=...
 # OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 # OPENROUTER_MODEL_WORKER=openai/gpt-4o-mini
 # OPENROUTER_MODEL_EVALUATOR=openai/gpt-4o-mini
 
-# Graph and tools
+# --- Ollama (local) ---
+# OLLAMA_BASE_URL=http://localhost:11434
+# OLLAMA_MODEL_WORKER=llama3.1:8b
+# OLLAMA_MODEL_EVALUATOR=llama3.1:8b
+
+# --- Graph ---
 MAX_AGENT_ITERATIONS=8
 LLM_TIMEOUT_SECONDS=30
-# SERPER_API_KEY=...    # enables web search
 
-# Tracing (LangSmith)
+# --- Optional integrations ---
+# SERPER_API_KEY=...       # enables web search tool
+# PUSHOVER_TOKEN=...
+# PUSHOVER_USER=...
+
+# --- LangSmith tracing ---
 # LANGCHAIN_TRACING_V2=true
 # LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
 # LANGCHAIN_API_KEY=...
 # LANGCHAIN_PROJECT=operator-sidekick
 EOF
-```
 
-Then load it:
-
-```bash
 set -a; source .env; set +a
 ```
 
-### Run tests
+### Run the UI
+
+```bash
+# Gradio chat + observability dashboard
+bash scripts/run_ui.sh
+
+# Or directly
+uv run --with langchain-community --with langchain-core --with langgraph --with gradio python -m src.ui.gradio_app
+```
+
+### Run Tests
 
 ```bash
 uv run --with pytest --with pydantic pytest -q
 uv run --with pytest --with pydantic --with langgraph --with langchain-core --with langchain-openai pytest -q tests/unit/
 ```
 
-Focused suites:
-
-```bash
-uv run --with pytest --with pydantic pytest -q tests/unit/test_state.py
-uv run --with pytest --with pydantic pytest -q tests/unit/test_llm_base.py tests/unit/test_openai_client.py
-uv run --with pytest --with pydantic pytest -q tests/unit/test_prompts.py
-uv run --with pytest --with pydantic pytest -q tests/unit/test_worker.py
-uv run --with pytest --with pydantic pytest -q tests/unit/test_evaluator.py
-uv run --with pytest --with pydantic pytest -q tests/unit/test_tools/
-```
-
-### Run the app
-
-Dev runner (auto-detects OpenRouter if credentials are set):
-
-```bash
-bash scripts/run_dev.sh
-```
-
-Gradio UI:
-
-```bash
-bash scripts/run_ui.sh
-```
-
 ---
 
 ## Configuration
 
-Common variables (full list: `docs/developer.md`):
+| Variable | Default | Role |
+|----------|---------|------|
+| `OPENAI_API_KEY` | — | OpenAI credential. |
+| `OPENAI_MODEL_WORKER` / `OPENAI_MODEL_EVALUATOR` | `llama3.1:8b` | Worker / evaluator model IDs. |
+| `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` | — | OpenRouter support. |
+| `OPENROUTER_MODEL_WORKER` / `OPENROUTER_MODEL_EVALUATOR` | — | OpenRouter model slugs. |
+| `OPENAI_MAX_TOKENS` / `OPENROUTER_MAX_TOKENS` | `512` | Token cap per LLM call. |
+| `OLLAMA_BASE_URL` | — | Ollama server URL (enables local mode). |
+| `OLLAMA_MODEL_WORKER` / `OLLAMA_MODEL_EVALUATOR` | `llama3.1:8b` | Ollama model names. |
+| `LLM_TIMEOUT_SECONDS` | `30` | HTTP client timeout. |
+| `MAX_AGENT_ITERATIONS` | `8` | Safety cap for graph loops. |
+| `TOKENS_PER_RUN_LIMIT` | `50000` | Approximate token kill-switch per run. |
+| `HISTORY_CHAR_LIMIT` | `8000` | Max chars of conversation history sent to LLM. |
+| `SANDBOX_DIR` / `SESSION_STORE_DIR` | `./sandbox`, `./.sessions` | Local storage roots. |
+| `BROWSER_HEADLESS` | `false` | Playwright headless mode. |
+| `SERPER_API_KEY` | — | Enables web search tool. |
+| `PUSHOVER_TOKEN` / `PUSHOVER_USER` | — | Pushover notification credentials. |
 
-| Variable | Role |
-|----------|------|
-| `OPENAI_API_KEY` | Credential for OpenAI. |
-| `OPENAI_MODEL_WORKER` / `OPENAI_MODEL_EVALUATOR` | Default model IDs (default: gpt-4o-mini). |
-| `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` | OpenRouter support. |
-| `OPENROUTER_MODEL_WORKER` / `OPENROUTER_MODEL_EVALUATOR` | OpenRouter slugs (defaults to OpenAI values). |
-| `OPENAI_MAX_TOKENS` / `OPENROUTER_MAX_TOKENS` | Token caps per call (default 512). |
-| `LLM_TIMEOUT_SECONDS` | HTTP client timeout. |
-| `MAX_AGENT_ITERATIONS` | Safety cap for graph loops. |
-| `SANDBOX_DIR` / `SESSION_STORE_DIR` | Local sandbox and session storage roots. |
-| `BROWSER_HEADLESS` | Playwright visibility. |
-| `SERPER_API_KEY`, `PUSHOVER_*` | Optional integrations. |
-
----
-
-## Architecture
-
-Control flow:
-
-```mermaid
-flowchart LR
-  User[User / UI] <--> Sidekick[Sidekick / LangGraph]
-  Sidekick --> Worker[Worker LLM]
-  Worker -->|tool calls| Tools[Tools]
-  Tools --> Worker
-  Worker -->|assistant reply| Eval[Evaluator LLM]
-  Eval -->|insufficient: feedback| Worker
-  Eval -->|success or user input needed| End[END / pause]
-```
-
-Key details:
-- `src/agents/graph.py`: worker → optional tools → evaluator → (END or worker), with iteration cap and resume
-- Evaluator feedback is stored as a system message; UI shows only the final assistant answer
-- `src/sidekick.py`: builders for OpenAI and OpenRouter (with token caps)
+Full reference: `docs/developer.md`.
 
 ---
 
-## How It Works (Simple Flow)
+## How It Works
 
-1. User provides a task (e.g., “Find flight tickets under $500”).
-2. Worker LLM plans and executes, using tools as needed:
-   - Open browser (Playwright)
-   - Search the web
-   - Extract or generate outputs
-3. Evaluator LLM reviews the result:
-   - If correct → finish
-   - If not → provide feedback and retry
-   - If unclear → ask for user input
-4. Loop continues until success, user input, or safe stop (iteration cap).
-5. State is checkpointed by `thread_id` to support resume.
-
----
-
-## Key Design Decisions
-
-- Two-LLM architecture: Worker (execution) and Evaluator (quality control)
-- LangGraph for orchestration: stateful, multi-step workflows with explicit routing
-- Tool-augmented AI: search, Wikipedia, files, Python REPL, notifications, optional browser
-- Persistent memory: `thread_id`-scoped checkpointing and resume
-- Human-in-the-loop safety: evaluator can pause for clarification; iteration caps and token caps
-- Tracing + observability: LangSmith tagging/metadata and structured logging
+1. **User sends a task** — e.g. "Find flight tickets under $500".
+2. **Intent detection** — the graph checks if the query needs factual retrieval (overview, definitions, external data).
+3. **Auto-retrieve** — if needed, local docs (README, developer guide) or Wikipedia are fetched and injected into context before the worker runs.
+4. **Worker LLM** — plans and executes, calling tools as needed (search, browser, Python REPL, files).
+5. **Evaluator / Finalize** — reviews the result against success criteria:
+   - Accepted → end
+   - Rejected → feedback sent back to worker for retry
+   - Unclear → pause and ask user
+6. **Loop** continues until success, user input needed, or iteration/token cap hit.
+7. **State checkpointed** by `thread_id` — sessions are resumable.
 
 ---
 
-## Tracing and metrics
+## Observability
 
-Enable LangSmith tracing (optional):
+The Gradio UI includes a live **Observability** panel with:
+
+- **Acceptance rate** — evaluator finality (% of runs accepted on first pass)
+- **Iterations p95** — loop health; high values indicate the worker is struggling
+- **Latency p50 / p95** — end-to-end response time
+- **Avg tokens / run** — cost proxy
+- **Tool reliability chart** — per-tool success rate
+- **Latency distribution** — histogram with p50/p95 reference lines
+- **Token usage trend** — per-run token count over time
+
+Enable LangSmith for full distributed tracing:
 
 ```bash
 export LANGCHAIN_TRACING_V2=true
@@ -218,18 +208,20 @@ export LANGCHAIN_API_KEY=your_key
 export LANGCHAIN_PROJECT=operator-sidekick
 ```
 
-Recommended quality metrics:
-- Evaluator acceptance rate (finality)
-- Iterations to success (loop health)
-- Total tokens per run (financial)
-- Tool success rate by tool (reliability)
-- End-to-end latency p50/p95 (UX)
+---
+
+## LLM Provider Notes
+
+| Provider | Tools | Evaluator | Notes |
+|----------|-------|-----------|-------|
+| OpenAI / OpenRouter | ✅ Full tool binding | ✅ Structured output | Recommended for production. |
+| Ollama (local) | ❌ Disabled | ✅ Heuristic fallback | 8B models default to tool calls over text when tools are bound; auto-retrieve handles grounding. Use `llama3.1:8b` or larger. |
 
 ---
 
 ## Business Impact
 
-- Reduced manual work via safe automation
+- Reduced manual work via safe, auditable automation
 - Faster onboarding flows (e.g., KYC document handling)
 - Improved reliability with self-evaluation and controlled retry
 - Cost optimization via token caps and early-stop logic
@@ -237,45 +229,15 @@ Recommended quality metrics:
 
 Fintech examples:
 - KYC automation and compliance workflows
-- Fraud investigation assisted tooling (document search/summarization)
+- Fraud investigation tooling (document search and summarisation)
 - Customer onboarding and verification journeys
-
----
-
-## Evaluation Strategy
-
-The evaluator uses structured outputs to ensure quality across:
-- Task completion validation against success criteria
-- Iteration progress tracking and loop health
-- Tool usage correctness and error surface area
-- Output quality checks (format, length, constraints)
-- Safety and user-clarification detection
-
-This yields reliable, safe, and cost-aware behavior:
-- Reliable: high acceptance rate, fewer retries
-- Safe: pauses for clarification when ambiguous
-- Cost-efficient: tokens and iterations capped
-
----
-
-## Documentation
-
-| Resource | Use it for |
-|----------|------------|
-| [`docs/developer.md`](docs/developer.md) | Change protocol, module ownership, config contract, testing matrix, and change log. |
-
----
-
-## License
-
-See `LICENSE`.
 
 ---
 
 ## Contributing
 
 1. Implement or change behaviour with tests.
-2. Update `docs/developer.md` (change log, config, testing notes as applicable).
+2. Update `docs/developer.md` (change log, config, testing notes).
 3. Verify locally:
 
    ```bash
@@ -286,13 +248,17 @@ See `LICENSE`.
 
 ---
 
+## License
+
+See `LICENSE`.
+
+---
+
 ## Author
 
-Haben E. Akelom  
-Senior Software & AI Engineer | AI Systems
+Haben E. Akelom — Senior Software & AI Engineer | AI Systems
 
 - Designed and implemented Sidekick architecture
-- Built LangGraph orchestration and evaluator loop
-- Integrated tool ecosystem and checkpointing
-- Focused on production-grade AI systems with tracing and metrics
-
+- Built LangGraph orchestration, evaluator loop, and intent/auto-retrieve pipeline
+- Integrated tool ecosystem, multi-provider LLM support, and checkpointing
+- Built observability UI with live metrics dashboard

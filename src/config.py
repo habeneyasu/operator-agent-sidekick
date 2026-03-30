@@ -46,6 +46,16 @@ class Settings:
     serper_api_key: str | None
     pushover_token: str | None
     pushover_user: str | None
+    tokens_per_run_limit: int
+    history_char_limit: int
+    openrouter_api_key: str | None
+    openrouter_base_url: str | None
+    openrouter_model_worker: str | None
+    openrouter_model_evaluator: str | None
+    openrouter_max_tokens: int | None
+    ollama_base_url: str | None
+    ollama_model_worker: str | None
+    ollama_model_evaluator: str | None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -58,8 +68,8 @@ class Settings:
             environment=os.getenv("ENVIRONMENT", "development"),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
             openai_api_key=os.getenv("OPENAI_API_KEY"),
-            openai_model_worker=os.getenv("OPENAI_MODEL_WORKER", "gpt-4o-mini"),
-            openai_model_evaluator=os.getenv("OPENAI_MODEL_EVALUATOR", "gpt-4o-mini"),
+            openai_model_worker=os.getenv("OPENAI_MODEL_WORKER", "llama3.1:8b"),
+            openai_model_evaluator=os.getenv("OPENAI_MODEL_EVALUATOR", "llama3.1:8b"),
             llm_timeout_seconds=_as_int(os.getenv("LLM_TIMEOUT_SECONDS"), 30),
             max_agent_iterations=_as_int(os.getenv("MAX_AGENT_ITERATIONS"), 8),
             browser_headless=_as_bool(os.getenv("BROWSER_HEADLESS"), default=False),
@@ -73,6 +83,16 @@ class Settings:
             serper_api_key=os.getenv("SERPER_API_KEY"),
             pushover_token=os.getenv("PUSHOVER_TOKEN"),
             pushover_user=os.getenv("PUSHOVER_USER"),
+            tokens_per_run_limit=_as_int(os.getenv("TOKENS_PER_RUN_LIMIT"), 50000),
+            history_char_limit=_as_int(os.getenv("HISTORY_CHAR_LIMIT"), 8000),
+            openrouter_api_key=os.getenv("OPENROUTER_API_KEY"),
+            openrouter_base_url=os.getenv("OPENROUTER_BASE_URL"),
+            openrouter_model_worker=os.getenv("OPENROUTER_MODEL_WORKER"),
+            openrouter_model_evaluator=os.getenv("OPENROUTER_MODEL_EVALUATOR"),
+            openrouter_max_tokens=_as_int(os.getenv("OPENROUTER_MAX_TOKENS"), 0) or None,
+            ollama_base_url=os.getenv("OLLAMA_BASE_URL"),
+            ollama_model_worker=os.getenv("OLLAMA_MODEL_WORKER"),
+            ollama_model_evaluator=os.getenv("OLLAMA_MODEL_EVALUATOR"),
         )
 
     def ensure_runtime_dirs(self) -> None:
